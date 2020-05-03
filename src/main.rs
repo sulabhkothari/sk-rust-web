@@ -2,6 +2,10 @@
 
 #[macro_use]
 extern crate rocket;
+extern crate rocket_contrib;
+extern crate diesel;
+
+use self::diesel::prelude::*;
 
 mod other {
     #[get("/world")]
@@ -271,11 +275,14 @@ fn not_found(req: &Request) -> String {
 #[get("/person/<name>?<age>")]
 fn person(name: String, age: Option<u8>) { /* .. */ }
 
+use rocket::State;
 //use rocket_contrib::templates::Template;
 fn main() {
     // rustup override set nightly
-    rocket::ignite().mount("/", routes![hello, other::world, user, user_int, user_str, account, item, index, user_id, logout, set_message])
+    rocket::ignite().mount("/", routes![hello, other::world, user, user_int, user_str, account, item, index, user_id, logout, set_message, count, request_local])
         //.attach(Template::fairing())
+        //.attach(LogsDbConn::fairing())
+        .manage(HitCount { count: AtomicUsize::new(0) })
         .launch();
     rocket::ignite().register(catchers![not_found]);
 
@@ -382,3 +389,58 @@ fn verify_add_user_uri() {
 //https://docs.rs/rayon/1.3.0/rayon/
 //http://blog.jecrooks.com/posts/rust-on-appengine.html
 //https://docs.rs/tokio/0.2.18/tokio/
+
+
+use std::sync::atomic::{AtomicUsize, Ordering};
+
+struct HitCount {
+    count: AtomicUsize
+}
+
+#[get("/count")]
+fn count(hit_count: State<HitCount>) -> String {
+    println!("****************WORKING*************");
+    let current_count = hit_count.count.load(Ordering::Relaxed).to_string();
+    hit_count.count.fetch_add(1, Ordering::Relaxed);
+    format!("Number of visits: {}", current_count)
+}
+
+// Request-local state is cached: if data of a given type has already been stored, it will be reused.
+// This is especially useful for request guards that might be invoked multiple times during routing
+// and processing of a single request, such as those that deal with authentication.
+use rocket::request::{self, FromRequest};
+
+/// A global atomic counter for generating IDs.
+static ID_COUNTER: AtomicUsize = AtomicUsize::new(0);
+
+/// A type that represents a request's ID.
+struct RequestId(pub usize);
+
+/// Returns the current request's ID, assigning one only as necessary.
+impl<'a, 'r> FromRequest<'a, 'r> for &'a RequestId {
+    type Error = ();
+
+    fn from_request(request: &'a Request<'r>) -> request::Outcome<Self, Self::Error> {
+        // The closure passed to `local_cache` will be executed at most once per
+        // request: the first time the `RequestId` guard is used. If it is
+        // requested again, `local_cache` will return the same value.
+        request::Outcome::Success(request.local_cache(|| {
+            RequestId(ID_COUNTER.fetch_add(1, Ordering::Relaxed))
+        }))
+    }
+}
+
+#[get("/request-local")]
+fn request_local(id: &RequestId) -> String {
+    format!("This is request #{}.", id.0)
+}
+
+//sudo -u sulabhkothari psql
+//postgres=# create database rocketweb;
+//postgres=# create user sulabhk with encrypted password 'kothari';
+//postgres=# grant all privileges on database rocketweb to sulabhk;
+//cargo install diesel_cli --no-default-features --features postgres
+//echo DATABASE_URL=postgres://sulabhk:kothari@localhost/rocketweb > .env
+//diesel setup
+//diesel migration generate create_people
+//diesel print-schema > src/schema.rs

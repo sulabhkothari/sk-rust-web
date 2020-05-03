@@ -1,0 +1,2 @@
+[global.databases]
+postgres_logs = { url = "postgres://sulabhk:kothari@localhost/rocketweb" }
