@@ -4,7 +4,11 @@
 extern crate rocket;
 extern crate rocket_contrib;
 extern crate diesel;
+extern crate r2d2;
+extern crate r2d2_diesel;
 
+use sk_rust_web::schema::posts;
+use sk_rust_web::models::*;
 use self::diesel::prelude::*;
 
 mod other {
@@ -275,14 +279,82 @@ fn not_found(req: &Request) -> String {
 #[get("/person/<name>?<age>")]
 fn person(name: String, age: Option<u8>) { /* .. */ }
 
+fn access_db() {
+    use sk_rust_web::schema::posts::dsl::*;
+
+    let connection = sk_rust_web::establish_connection();
+    let results = posts.filter(published.eq(true))
+        .limit(5)
+        .load::<Post>(&connection)
+        .expect("Error loading posts");
+
+    println!("Displaying {} posts", results.len());
+    for post in results {
+        println!("{}", post.title);
+        println!("----------\n");
+        println!("{}", post.body);
+    }
+
+    let new_post = NewPost {
+        title: "sk2",
+        body: "I called myself Pip and came to be called as Pip",
+    };
+
+    diesel::insert_into(sk_rust_web::schema::posts::table)
+        .values(&new_post)
+        .execute(&connection)
+        .expect("Error saving new post");
+}
+
+//use rocket_contrib::databases::postgres;
+//use rocket_contrib::databases::diesel;
+use rocket_contrib::database;
+
+#[database("postgres_rocketweb")]
+struct RocketWebDbConn(diesel::PgConnection);
+//struct RocketWebDbConn(postgres::Connection);
+
+// use diesel::result::Error;
+// use std::env;
+// use rocket::http::Status;
+// //use rocket::response::status;
+// use rocket_contrib::json::JsonValue;
+// use std::collections::HashMap;
+//
+// #[get("/")]
+// fn all(connection: RocketWebDbConn) -> Json<Post> {
+//     use sk_rust_web::schema::posts::dsl::*;
+//     use sk_rust_web::schema::posts;
+//     use sk_rust_web::models::Post;
+//     Json(*posts.find(1).load(connection).unwrap().first().unwrap())
+//     //Json(posts::table.order(posts::id.asc()).load::<Post>(connection).unwrap())
+// }
+
+#[get("/posts")]
+fn all_posts(connection: RocketWebDbConn) -> Json<Vec<Post>> {
+    use sk_rust_web::schema::posts::dsl::*;
+    use sk_rust_web::schema::posts;
+    use sk_rust_web::models::Post;
+    Json(posts
+        //.filter(published.eq(true))
+        //.limit(5)
+        .load::<Post>(&*connection)
+        .expect("Error loading posts"))
+}
+
 use rocket::State;
+
+
 //use rocket_contrib::templates::Template;
 fn main() {
+    access_db();
     // rustup override set nightly
-    rocket::ignite().mount("/", routes![hello, other::world, user, user_int, user_str, account, item, index, user_id, logout, set_message, count, request_local])
+    rocket::ignite().mount("/", routes![all_posts, hello, other::world, user, user_int, user_str, account, item, index, user_id, logout, set_message, count, request_local])
         //.attach(Template::fairing())
         //.attach(LogsDbConn::fairing())
         .manage(HitCount { count: AtomicUsize::new(0) })
+        .attach(RocketWebDbConn::fairing())
+        //.manage(sk_rust_web::connection_pool::init_pool())
         .launch();
     rocket::ignite().register(catchers![not_found]);
 
@@ -409,6 +481,7 @@ fn count(hit_count: State<HitCount>) -> String {
 // This is especially useful for request guards that might be invoked multiple times during routing
 // and processing of a single request, such as those that deal with authentication.
 use rocket::request::{self, FromRequest};
+use sk_rust_web::connection_pool::DbConn;
 
 /// A global atomic counter for generating IDs.
 static ID_COUNTER: AtomicUsize = AtomicUsize::new(0);

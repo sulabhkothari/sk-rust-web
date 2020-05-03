@@ -1,2 +1,2 @@
 [global.databases]
-postgres_logs = { url = "postgres://sulabhk:kothari@localhost/rocketweb" }
+postgres_rocketweb = { url = "postgres://sulabhk:kothari@localhost/rocketweb" }
