@@ -343,19 +343,37 @@ fn all_posts(connection: RocketWebDbConn) -> Json<Vec<Post>> {
 }
 
 use rocket::State;
-
+use rocket::fairing::AdHoc;
+use rocket::http::Method;
 
 //use rocket_contrib::templates::Template;
 fn main() {
     access_db();
+
+    use std::sync::atomic::AtomicUsize;
+    use sk_rust_web::counter_fairing::*;
     // rustup override set nightly
+    // rustup default stable
+    // cargo clean
     rocket::ignite().mount("/", routes![all_posts, hello, other::world, user, user_int, user_str, account, item, index, user_id, logout, set_message, count, request_local])
         //.attach(Template::fairing())
         //.attach(LogsDbConn::fairing())
         .manage(HitCount { count: AtomicUsize::new(0) })
         .attach(RocketWebDbConn::fairing())
+        .attach(Counter::new(0,0))
+        .attach(AdHoc::on_launch("Launch Printer", |_| {
+            println!("Rocket is about to launch! Exciting! Here we go...");
+        }))
+        .attach(AdHoc::on_request("Put Rewriter", |req, _| {
+            //req.set_method(Method::Put);
+            println!("Received request...");
+        }))
         //.manage(sk_rust_web::connection_pool::init_pool())
         .launch();
+
+    // This is why Rocket provides the AdHoc type, which creates a fairing from a simple function or closure. Using the AdHoc type is easy: simply call the on_attach,
+    // on_launch, on_request, or on_response constructors on AdHoc to create an AdHoc structure from a function or closure.
+
     rocket::ignite().register(catchers![not_found]);
 
     // with unnamed parameters, in route path declaration order
@@ -517,3 +535,101 @@ fn request_local(id: &RequestId) -> String {
 //diesel setup
 //diesel migration generate create_people
 //diesel print-schema > src/schema.rs
+
+
+#[get("/")]
+fn hello_world() -> &'static str {
+    "Hello, world!"
+}
+
+fn rocket() -> rocket::Rocket {
+    rocket::ignite().mount("/", routes![hello_world])
+}
+
+#[cfg(test)]
+mod test {
+    use super::rocket;
+    use rocket::local::Client;
+    use rocket::http::Status;
+
+    #[test]
+    fn hello_world() {
+        let client = Client::new(rocket()).expect("valid rocket instance");
+        let mut response = client.get("/").dispatch();
+        assert_eq!(response.status(), Status::Ok);
+        assert_eq!(response.body_string(), Some("Hello, world!".into()));
+    }
+}
+
+// Codegen Debug
+// It can be useful to inspect the code that Rocket's code generation is emitting, especially when you get a strange type error. To have Rocket log the code that
+// it is emitting to the console, set the ROCKET_CODEGEN_DEBUG environment variable when compiling:
+// ROCKET_CODEGEN_DEBUG=1 cargo build
+
+
+
+// By default, Rocket limits forms to 32KiB (32768 bytes). To increase the limit, simply set the limits.forms configuration parameter. For example, to increase
+// the forms limit to 128KiB globally, we might write:
+// [global.limits]
+// forms = 131072
+
+// The limits parameter can contain keys and values that are not endemic to Rocket. For instance, the Json type reads the json limit value to cap incoming JSON data.
+// You should use the limits parameter for your application's data limits as well. Data limits can be retrieved at runtime via the Request::limits() method.
+
+// Managed State#
+// The enabling feature for maintaining state is managed state. Managed state, as the name implies, is state that Rocket manages for your application.
+// The state is managed on a per-type basis: Rocket will manage at most one value of a given type.
+// .manage(HitCount { count: AtomicUsize::new(0) })
+
+// Environment Variables
+//
+// All configuration parameters, including extras, can be overridden through environment variables. To override the configuration parameter {param},
+// use an environment variable named ROCKET_{PARAM}. For instance, to override the "port" configuration parameter, you can run your application with:
+// ROCKET_PORT=3721 ./your_application
+//
+// 🔧  Configured for development.
+//     => ...
+//     => port: 3721
+// Environment variables take precedence over all other configuration methods: if the variable is set, it will be used as the value for the parameter.
+// Variable values are parsed as if they were TOML syntax.
+
+
+// Programmatic:
+// In addition to using environment variables or a config file, Rocket can also be configured using the rocket::custom() method and ConfigBuilder:
+//
+// use rocket::config::{Config, Environment};
+//
+// let config = Config::build(Environment::Staging)
+//     .address("1.2.3.4")
+//     .port(9234)
+//     .finalize()?;
+//
+// rocket::custom(config)
+//     .mount("/", routes![/* .. */])
+//     .launch();
+//
+// Configuration via rocket::custom() replaces calls to rocket::ignite() and all configuration from Rocket.toml or environment variables. In other words,
+// using rocket::custom() results in Rocket.toml and environment variables being ignored.
+
+
+// Configuring TLS
+// Warning: Rocket's built-in TLS is not considered ready for production use. It is intended for development use only.
+// Rocket includes built-in, native support for TLS >= 1.2 (Transport Layer Security). In order for TLS support to be enabled, Rocket must be compiled with the "tls" feature.
+// To do this, add the "tls" feature to the rocket dependency in your Cargo.toml file:
+// [dependencies]
+// rocket = { version = "0.4.4", features = ["tls"] }
+//
+// TLS is configured through the tls configuration parameter. The value of tls must be a table with two keys:
+//
+//     certs: [string] a path to a certificate chain in PEM format
+//     key: [string] a path to a private key file in PEM format for the certificate in certs
+//
+// The recommended way to specify these parameters is via the global environment:
+// [global.tls]
+// certs = "/path/to/certs.pem"
+// key = "/path/to/key.pem"
+// Of course, you can always specify the configuration values per environment:
+// [development]
+// tls = { certs = "/path/to/certs.pem", key = "/path/to/key.pem" }
+// Or via environment variables:
+// ROCKET_TLS={certs="/path/to/certs.pem",key="/path/to/key.pem"} cargo run

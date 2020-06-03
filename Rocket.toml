@@ -1,2 +1,3 @@
 [global.databases]
 postgres_rocketweb = { url = "postgres://sulabhk:kothari@localhost/rocketweb" }
+forms = 131072

@@ -1,6 +1,7 @@
 pub mod schema;
 pub mod models;
 pub mod connection_pool;
+pub mod counter_fairing;
 
 #[macro_use]
 extern crate diesel;

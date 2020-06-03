@@ -16,7 +16,7 @@ pub fn init_pool() -> Pool {
 }
 
 fn database_url() -> String {
-    String::from(env!("DATABASE_URL"))
+    String::from(env!("DATABASE_URL"))//"postgres://sulabhk:kothari@localhost/rocketweb")//
 }
 
 pub struct DbConn(pub r2d2::PooledConnection<ConnectionManager<PgConnection>>);
